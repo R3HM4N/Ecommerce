@@ -28,18 +28,29 @@ public class SecurityConfig {
     private final AuthenticationProvider authenticationProvider;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private  final LogoutHandler logoutHandler;
+    private final CorsConfig corsConfig;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity) throws Exception {
         httpSecurity
-                .cors(cors -> cors.disable())
+                .cors(cors -> cors.configurationSource(corsConfig.corsConfigurationSource()))
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(req ->
                         req.requestMatchers("/auth/**")
                                 .permitAll()
+                                .requestMatchers(GET,"/api/blog/**").permitAll()
+                                .requestMatchers(GET,"/api/category/**").permitAll()
+                                .requestMatchers(GET,"/api/v1/products").permitAll()
+                                .requestMatchers(GET,"/api/v1/products/**").permitAll()
+                                .requestMatchers(GET,"/api/v1/category").permitAll()
+                                .requestMatchers("/api/v1/contact/**").permitAll()
+                                .requestMatchers("/countries/**").permitAll()
+                                .requestMatchers(GET,"/images/**").permitAll()
                                 .requestMatchers(permitSwagger).permitAll()
                                 .anyRequest()
                                 .authenticated()
+
+
                 )
                 .sessionManagement(session -> session.sessionCreationPolicy(STATELESS))
                 .authenticationProvider(authenticationProvider)
@@ -67,6 +78,7 @@ public class SecurityConfig {
             "/configuration/security",
             "/swagger-ui/**",
             "/webjars/**",
-            "/swagger-ui.html"
+            "/swagger-ui.html",
+            "/https://furnirostore.up.railway.app/images/Product-images/**"
     };
 }

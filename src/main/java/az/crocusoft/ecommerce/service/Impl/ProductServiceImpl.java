@@ -8,16 +8,17 @@ import az.crocusoft.ecommerce.dto.response.ProductPageResponse;
 import az.crocusoft.ecommerce.dto.response.ProductResponse;
 import az.crocusoft.ecommerce.dto.response.SingleProductResponse;
 import az.crocusoft.ecommerce.exception.ProductNotExistsException;
+import az.crocusoft.ecommerce.exception.ResourceNotFoundException;
 import az.crocusoft.ecommerce.model.product.*;
 import az.crocusoft.ecommerce.repository.*;
 import az.crocusoft.ecommerce.service.ProductService;
-import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -36,7 +37,7 @@ public class ProductServiceImpl implements ProductService {
     private static final String PRODUCT_IMAGES_FOLDER_NAME = "Product-images";
 
 
-    @Override
+    @Transactional
     public void addProduct(ProductRequest productRequest,
                            MultipartFile image) throws IOException {
         Product product = new Product();
@@ -62,7 +63,7 @@ public class ProductServiceImpl implements ProductService {
         if (productRequest.getCategoryId() != null) {
             Category category = categoryRepository
                     .findById(productRequest.getCategoryId())
-                    .orElseThrow(() -> new EntityNotFoundException
+                    .orElseThrow(() -> new ResourceNotFoundException
                             ("Category not found with id: " + productRequest.getCategoryId()));
             product.setCategory(category);
         }
@@ -71,7 +72,7 @@ public class ProductServiceImpl implements ProductService {
             Set<FurnitureDesignation> furnitureDesignations = new HashSet<>();
             for (Long id : productRequest.getFurnitureDesignationIds()) {
                 FurnitureDesignation fd = furnitureDesignationRepository.findById(id)
-                        .orElseThrow(() -> new EntityNotFoundException
+                        .orElseThrow(() -> new ResourceNotFoundException
                                 ("FurnitureDesignation not found with id: " + id));
                 furnitureDesignations.add(fd);
             }
@@ -80,6 +81,7 @@ public class ProductServiceImpl implements ProductService {
         productRepository.save(product);
     }
 
+    @Transactional
     public void addVariationToProduct(Long productId,
                                       ProductVariationRequest productVariationRequest,
                                       List<MultipartFile> images) throws IOException {
@@ -145,6 +147,53 @@ public class ProductServiceImpl implements ProductService {
                 allProducts.hasNext());
     }
 
+    public ProductPageResponse getAllProductsByFurnitureDesignationId(Long designationId,
+                                                                      int pageNumber,
+                                                                      int pageSize) {
+
+        String sortBy = "name";
+        String sortOrder = PaginationConstants.SORT_DIRECTION;
+
+        Sort sort = Sort.by(Sort.Direction.fromString(sortOrder), sortBy);
+        Pageable pageable = PageRequest.of(pageNumber, pageSize, sort);
+        Page<Product> allProducts = productRepository
+                .findProductsByFurnitureDesignations_IdAndPublishedIsTrue(designationId, pageable);
+
+        return new ProductPageResponse(allProducts.getContent()
+                .stream()
+                .map(this::convertToProductResponse)
+                .toList(),
+                allProducts.getTotalPages(),
+                allProducts.getTotalElements(),
+                allProducts.hasNext());
+    }
+
+    public ProductPageResponse searchProductByKeyword(String keyword, Integer pageNumber,
+                                               Integer pageSize, String sortBy,
+                                               String sortOrder) {
+        List<String> sortFields = Arrays.asList(new String[]{"name", "title"});
+        if (!sortFields.contains(sortBy.toLowerCase())) {
+            sortBy = PaginationConstants.SORT_BY;
+        }
+        List<String> orders = Arrays.asList(PaginationConstants.orders);
+        if (!orders.contains(sortOrder.toUpperCase())) {
+            sortOrder = PaginationConstants.SORT_BY;
+        }
+
+        Sort sort = Sort.by(Sort.Direction.fromString(sortOrder), sortBy);
+        Pageable pageable = PageRequest.of(pageNumber, pageSize, sort);
+        Page<Product> allProducts = productRepository
+                .findByNameContaining(keyword, pageable);
+
+        return new ProductPageResponse(allProducts.getContent()
+                .stream()
+                .map(this::convertToProductResponse)
+                .toList(),
+                allProducts.getTotalPages(),
+                allProducts.getTotalElements(),
+                allProducts.hasNext());
+    }
+
     @Override
     public SingleProductResponse getProductById(Long id) {
         Product product = findProductById(id);
@@ -172,6 +221,12 @@ public class ProductServiceImpl implements ProductService {
                         .toList())
                 .build();
         return productResponse;
+    }
+
+    @Transactional
+    public void deleteProduct(Long id) {
+        Product product = findProductById(id);
+        productRepository.delete(product);
     }
 
     public Double getProductPrice(Product product) {
@@ -234,9 +289,10 @@ public class ProductServiceImpl implements ProductService {
         return price - (price * discount / 100);
     }
 
+
     public Product findProductById(Long id) {
         return productRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Product is currently not available"));
+                .orElseThrow(() -> new ResourceNotFoundException("Product is currently not available"));
     }
 
 
@@ -249,7 +305,7 @@ public class ProductServiceImpl implements ProductService {
                 .price(getProductPrice(product))
                 .discount(getProductDiscount(product))
                 .discountPrice(getProductSpecialPrice(product))
-                .imageURL(product.getMainImage().getImageUrl())
+                .imageURL(fileService.getFullImagePath(product.getMainImage().getImageUrl()))
                 .build();
         return productResponse;
     }
@@ -263,7 +319,11 @@ public class ProductServiceImpl implements ProductService {
         productVariationDTO.setSpecialPrice(getProductVariationSpecialPrice(variation));
         productVariationDTO.setColor(variation.getColor());
         productVariationDTO.setSize(variation.getSize());
-        variation.getImages().forEach(image -> productVariationDTO.getImageUrls().add(image.getImageUrl()));
+        variation.getImages().forEach(
+                image -> productVariationDTO
+                        .getImageUrls()
+                        .add(fileService.getFullImagePath(image.getImageUrl()))
+        );
         return productVariationDTO;
     }
 

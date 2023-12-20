@@ -11,5 +11,9 @@
         <module name="ecommerce.main" />
       </profile>
     </annotationProcessing>
+    <bytecodeTargetLevel>
+      <module name="ecommerce.main" target="17" />
+      <module name="ecommerce.test" target="17" />
+    </bytecodeTargetLevel>
   </component>
 </project>
