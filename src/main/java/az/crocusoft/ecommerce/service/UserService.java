@@ -32,7 +32,7 @@ public class UserService {
                 .username(u.getUsername())
                 .name(u.getName())
                 .email(u.getEmail())
-                .surName(u.getUsername())
+                .surName(u.getSurname())
                 .role(u.getRole()).build();
 
         return user;
@@ -44,10 +44,7 @@ public class UserService {
     }
 
     public void createUser(UserDto userDto){
-
-
          service.save(userDto);
-
 
     }
 

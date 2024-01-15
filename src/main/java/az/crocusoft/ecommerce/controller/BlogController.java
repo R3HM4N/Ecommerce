@@ -1,6 +1,8 @@
 package az.crocusoft.ecommerce.controller;
 
+import az.crocusoft.ecommerce.constants.PaginationConstants;
 import az.crocusoft.ecommerce.dto.*;
+import az.crocusoft.ecommerce.model.Blog;
 import az.crocusoft.ecommerce.service.BlogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -12,6 +14,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/blog")
@@ -20,40 +23,50 @@ public class
 BlogController {
     private final BlogService blogService;
 
-
-    @GetMapping
+    @GetMapping("/public/blogs")
     public ResponseEntity<BlogResponseDto> getAllBlogs(
-            @RequestParam(value = "pageNumber", defaultValue = "0") Integer pageNumber,
-            @RequestParam(value = "pageSize", defaultValue = "5") Integer pageSize
-    ) {
-        BlogResponseDto response = blogService.getAllBlogs(pageNumber, pageSize);
-        return new ResponseEntity<>(response, HttpStatus.OK);
+            @RequestParam(name = "title", defaultValue = "", required = false) String title,
+            @RequestParam(name = "categoryId", required = false) Integer categoryId,
+            @RequestParam(name = "pageNumber", defaultValue = PaginationConstants.PAGE_NUMBER) Integer page,
+            @RequestParam(name = "pageSize", defaultValue = PaginationConstants.DEFAULT_PAGE_SIZE) Integer size) {
+
+        BlogResponseDto response;
+
+        if (categoryId != null) {
+            response = blogService.searchBlogsByTitleAndCategory(title, categoryId, page, size);
+        } else {
+            response = blogService.searchBlogsByTitle(title, page, size);
+        }
+
+        return ResponseEntity.ok(response);
     }
 
+    @GetMapping("/category/{cid}")
+    public List<BlogMainDto> getBlogsByCategory(@PathVariable("cid") Integer categoryId) {
+        return blogService.getBlogMainDtoByCategoryId(categoryId);
+    }
     @GetMapping("/{pid}")
     public ResponseEntity<BlogMainDto> getBlogById(@PathVariable("pid") Long blogId) {
         return ResponseEntity.ok(blogService.getBlogById(blogId));
     }
 
-    @GetMapping("/recent/{months}")
-    public List<BlogRecentDto> getRecentBlogPosts(@PathVariable int months) {
-        return blogService.getRecentPosts(months);
+    @GetMapping("/recent")
+    public List<BlogRecentDto> getRecentBlogPosts() {
+        return blogService.getRecentPosts();
     }
 
-
-    @GetMapping("/count/{categoryId}")
-    public Integer getRecentBlogPosts(@PathVariable Integer categoryId) {
-        return blogService.countBlogsByCategory(categoryId);
+    @GetMapping("/count")
+    public List<Map<String, Integer>> countBlogsByCategory() {
+        return blogService.countBlogsByCategory();
     }
-
 
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping(consumes = {"multipart/form-data"})
-    public ResponseEntity<BlogMainDto> saveBlog(BlogDto blog, @RequestParam("image") MultipartFile image) throws Exception {
-        blog.setImage(image);
-        blogService.creatBlog(blog);
+    public ResponseEntity<Void> saveBlog(BlogDto blog, @RequestParam("image") MultipartFile image) throws Exception {
+        blogService.creatBlog(blog, image);
         return ResponseEntity.ok().build();
     }
+
     @PreAuthorize("hasRole('ADMIN')")
     @PutMapping(path = "/{pid}", consumes = {"multipart/form-data"})
     public ResponseEntity<Void> updateBlog(@PathVariable("pid") Long blogId,
@@ -66,7 +79,8 @@ BlogController {
     @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/{pid}")
     public ResponseEntity deleteBlog(@PathVariable("pid") Long blogId) {
-        return ResponseEntity.ok(blogService.deleteBlogById(blogId));
+        blogService.deleteBlogById(blogId);
+        return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 
 

@@ -4,6 +4,7 @@ import az.crocusoft.ecommerce.dto.OrderDto;
 import az.crocusoft.ecommerce.dto.cart.CartDto;
 import az.crocusoft.ecommerce.dto.cart.CartItemDto;
 import az.crocusoft.ecommerce.exception.CartNotFoundException;
+import az.crocusoft.ecommerce.exception.InsufficientStockException;
 import az.crocusoft.ecommerce.exception.UserNotFoundException;
 import az.crocusoft.ecommerce.model.*;
 import az.crocusoft.ecommerce.model.product.Product;
@@ -62,14 +63,21 @@ public class OrderServiceImpl implements OrderService {
         order.setOrderDate(LocalDate.now());
         order.setUser(user);
         for (CartItemDto cartItemDto : cartDto.getCartItems()) {
-            ProductVariation productVariation = cartItemDto.getProductVariation();
+            ProductVariation productVariation = productService.findById(cartItemDto.getVariationId());
 
             Product product = productVariation.getProduct();
+            int orderedQuantity = cartItemDto.getQuantity();
+            int remainingStock = productVariation.getStockQuantity() - orderedQuantity;
+
+            if (remainingStock < 0) {
+                throw new InsufficientStockException("Insufficient stock for product variation with ID: " + productVariation.getProductVariationiId());
+            }
+            productVariation.setStockQuantity(remainingStock);
 
             OrderItem orderItem = new OrderItem();
             orderItem.setOrder(order);
             orderItem.setProduct(product);
-            orderItem.setQuantity(cartItemDto.getQuantity());
+            orderItem.setQuantity(orderedQuantity);
             orderItem.setTotalAmount(
                     BigDecimal.valueOf((productService.getProductSpecialPrice(product))*(cartItemDto.getQuantity())));
             order.getOrderItems().add(orderItem);
@@ -81,7 +89,8 @@ public class OrderServiceImpl implements OrderService {
         cartService.clearAllCartsForUser(user);
         log.info("order completed");
 
-        return savedOrder;}
+        return savedOrder;
+    }
 
     @Override
     public List<Order> getAllOrders() {
@@ -116,9 +125,8 @@ public class OrderServiceImpl implements OrderService {
     }
     @Override
     public List<OrderDto> getOrdersByUserId(Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-        List<Order> userOrders = user.getOrders();
+
+        List<Order> userOrders = orderRepository.findAllByUserId(userId);
         return userOrders.stream()
                 .map(order -> modelMapper.map(order, OrderDto.class))
                 .collect(Collectors.toList());

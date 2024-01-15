@@ -2,9 +2,7 @@ package az.crocusoft.ecommerce;
 
 
 import az.crocusoft.ecommerce.dto.UserDto;
-import az.crocusoft.ecommerce.repository.UserRepository;
 import az.crocusoft.ecommerce.service.AuthenticationService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -32,7 +30,7 @@ public class EcommerceApplication  {
 //					.name("Shemsi")
 //					.surname("Azizaliyev")
 //					.username("admin")
-//					.password("12345")
+//					.password("Admin123")
 //					.email("admin@gmail.com")
 //					.build();
 //

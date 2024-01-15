@@ -4,25 +4,25 @@ import az.crocusoft.ecommerce.dto.*;
 import az.crocusoft.ecommerce.exception.CustomException;
 import az.crocusoft.ecommerce.model.Blog;
 import az.crocusoft.ecommerce.model.BlogCategory;
-import az.crocusoft.ecommerce.model.ImageUpload;
 import az.crocusoft.ecommerce.model.product.Image;
+import az.crocusoft.ecommerce.repository.BlogCategoryRepository;
 import az.crocusoft.ecommerce.repository.BlogRepository;
 import az.crocusoft.ecommerce.service.Impl.FileService;
+import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.List;
+import java.nio.file.Paths;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import static java.util.stream.Collectors.toList;
 
@@ -33,7 +33,7 @@ public class BlogService {
     private final BlogRepository blogRepository;
     private final BlogCategoryService categoryService;
     private final ImageService imageService;
-    private final AuthenticationService authenticationService;
+    private final BlogCategoryRepository blogCategoryRepository;
     private final FileService fileService;
     private static final String BLOG_IMAGES_FOLDER_NAME = "Blog-images";
 
@@ -42,16 +42,12 @@ public class BlogService {
     @Value("${file.upload-dir}")
     String uploadPath;
 
-    public BlogMainDto creatBlog(BlogDto blogDto) throws Exception {
+    public void creatBlog(BlogDto blogDto, MultipartFile image) throws Exception {
         BlogCategory category = categoryService.getCategoryById(blogDto.getCategoryId());
         Blog blog = new Blog();
-        Long signedInUserId = authenticationService.getSignedInUser().getId();
-
-        MultipartFile image = blogDto.getImage();
 
         String uploadedImageURL = imageService.uploadImage(image, BLOG_IMAGES_FOLDER_NAME);
         Image uploadedImage = new Image(uploadedImageURL);
-
 
         blog.setTitle(blogDto.getTitle());
         blog.setContent(blogDto.getContent());
@@ -60,9 +56,6 @@ public class BlogService {
         blog.setImageName(uploadedImage);
 
         blogRepository.save(blog);
-
-        return generateResponse(blog);
-
     }
 
 
@@ -90,46 +83,79 @@ public class BlogService {
     }
 
 
+    @Transactional
     public ResponseEntity deleteBlogById(Long blogId) {
         Blog blog = blogRepository.findById(blogId)
                 .orElseThrow(() -> new CustomException("Blog not found with id :" + blogId));
 
-        imageService.delete(String.valueOf(blog.getImageName()));
+        if (blog.getImageName() != null) {
+            imageService.delete(
+                    Paths.get(uploadPath).normalize().toAbsolutePath()
+                            + blog.getImageName().getImageUrl().substring(7)
+            );
+        } else {
+            throw new CustomException("Something went wrong");
+        }
         blogRepository.delete(blog);
         return ResponseEntity.ok(blog);
     }
 
-    public BlogResponseDto getAllBlogs(Integer pageNumber, Integer pageSize) {
-        Pageable pageable = PageRequest.of(pageNumber, pageSize);
-        Page<Blog> blogPages = blogRepository.findAll(pageable);
+    public BlogResponseDto searchBlogsByTitleAndCategory(String title, Integer categoryId, int pageNumber, int pageSize) {
+        Pageable pageable = PageRequest.of(pageNumber - 1, pageSize);
+        Page<Blog> blogPages;
+
+        if (categoryId != null) {
+            BlogCategory category = blogCategoryRepository.findById(categoryId)
+                    .orElseThrow(() -> new EntityNotFoundException("Category not found with id: " + categoryId));
+
+            blogPages = blogRepository.findByTitleContainingIgnoreCaseAndCategory(title, category, pageable);
+        } else {
+            blogPages = blogRepository.findByTitleContainingIgnoreCase(title, pageable);
+        }
 
         List<Blog> blogs = blogPages.getContent();
 
         List<BlogMainDto> blogDtoList = blogs.stream()
                 .map(this::generateResponse)
-                .collect(toList());
+                .collect(Collectors.toList());
 
-        BlogResponseDto response = new BlogResponseDto();
-        response.setBlogs(blogDtoList);
-        response.setCurrentPage(blogPages.getNumber());
-        response.setIsLastPage(blogPages.isLast());
-        response.setTotalBlogs(blogPages.getTotalElements());
-        response.setTotalPage(blogPages.getTotalPages());
-        return response;
+        return new BlogResponseDto(blogDtoList, blogPages.getNumber(),
+                blogPages.getTotalPages(), blogPages.getTotalElements(), blogPages.isLast());
     }
 
-    public List<BlogRecentDto> getRecentPosts(Integer months) {
-        Calendar calendar = Calendar.getInstance();
-        calendar.add(Calendar.MONTH, -months);
-        Date startDate = calendar.getTime();
 
-        List<Blog> blogs = blogRepository.findByDateGreaterThanEqual(startDate);
+    public BlogResponseDto searchBlogsByTitle(String title, int pageNumber, int pageSize) {
+        Pageable pageable = PageRequest.of(pageNumber - 1, pageSize);
+        Page<Blog> blogPages = blogRepository.findByTitleContainingIgnoreCase(title, pageable);
 
-        List<BlogRecentDto> blogDtoList = blogs.stream()
-                .map(blog -> generateRecentResponse(blog))
-                .collect(toList());
+        List<Blog> blogs = blogPages.getContent();
+        List<BlogMainDto> blogDtoList = blogs.stream()
+                .map(this::generateResponse)
+                .collect(Collectors.toList());
 
-        return blogDtoList;
+        return new BlogResponseDto(blogDtoList, blogPages.getNumber(),
+                blogPages.getTotalPages(), blogPages.getTotalElements(), blogPages.isLast());
+    }
+
+
+
+    public List<Map<String, Integer>> countBlogsByCategory() {
+        return blogRepository.countBlogsPerCategory();
+    }
+
+
+
+    public List<BlogRecentDto> getRecentPosts() {
+        List<Blog> recentBlogs = blogRepository.findTop6ByOrderByDateDesc();
+
+
+
+
+
+
+         return recentBlogs.stream()
+                .map(this::generateRecentResponse)
+                .collect(Collectors.toList());
     }
 
 
@@ -140,6 +166,17 @@ public class BlogService {
         return blogMainDto;
     }
 
+    public List<BlogMainDto> getBlogMainDtoByCategoryId(Integer categoryId) {
+        List<Blog> blogs = blogRepository.findByCategoryCid(categoryId);
+        List<BlogMainDto> blogMainDtos = new ArrayList<>();
+
+        for (Blog blog : blogs) {
+            BlogMainDto blogMainDto = generateResponse(blog);
+            blogMainDtos.add(blogMainDto);
+        }
+
+        return blogMainDtos;
+    }
 
     private BlogMainDto generateResponse(Blog blog) {
 
@@ -149,6 +186,7 @@ public class BlogService {
         blogMainDto.setContent(blog.getContent());
         blogMainDto.setDate(blog.getDate());
         blogMainDto.setCategoryId(blog.getCategory().getCid());
+        blogMainDto.setName(blog.getCategory().getName());
 
         if (blog.getImageName() != null) {
             blogMainDto.setImageUrl(fileService.getFullImagePath(blog.getImageName().getImageUrl()));
